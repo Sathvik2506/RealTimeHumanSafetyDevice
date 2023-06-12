@@ -1,0 +1,81 @@
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+// Define the SIM800A module's RX and TX pins
+#define SIM800_RX 4
+#define SIM800_TX 3
+
+// Define the CE and CSN pins for the nRF24L01 module
+#define CE_PIN 7
+#define CSN_PIN 8
+
+// Create a SoftwareSerial object for the SIM800A module
+SoftwareSerial sim800a(SIM800_RX, SIM800_TX);
+
+TinyGPSPlus gps;
+
+RF24 radio(CE_PIN, CSN_PIN); // Create an instance of the RF24 class
+
+void setup() {
+  Serial.begin(9600); // Start the serial communication
+  Serial3.begin(9600); // Start the serial communication with the GPS module
+  sim800a.begin(9600); // Start the serial communication with the SIM800A module
+
+  // Wait for the SIM800A module to initialize
+  delay(1000);
+
+  // Send a command to set the SIM800A module to text mode
+  sim800a.println("AT+CMGF=1");
+
+  // Wait for the SIM800A module to respond
+  delay(1000);
+
+  // Wait for the GPS module to initialize
+  delay(5000);
+
+  radio.begin(); // Initialize the nRF24L01 module
+  radio.openReadingPipe(0, 0x1234567890LL); // Set the receiving pipe address
+  radio.startListening(); // Start listening for incoming messages
+}
+
+void loop() {
+  if (radio.available()) { // Check if there is an incoming message
+    char payload[100];
+    memset(payload, 0, sizeof(payload)); // Clear the payload buffer
+    radio.read(&payload, sizeof(payload)); // Read the incoming message
+    Serial.println(payload); // Print the incoming message
+
+    if (strcmp(payload, "ACTIVATE_GPS") == 0) { // Check if the incoming message is to activate the GPS
+      while (true) {
+        while (Serial3.available() > 0) {
+          if (gps.encode(Serial3.read())) {
+            if (gps.location.isValid()) {
+              String latitude = String(gps.location.lat(), 6);
+              String longitude = String(gps.location.lng(), 6);
+              String mapLink = "https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude;
+              Serial.println(mapLink);
+              delay(2000);
+
+              // Send a message to a phone number with the Google Maps link
+              sim800a.println("AT+CMGS=\"+91XXXXXXXXXX\""); // Replace +1234567890 with the phone number you want to send a message to
+              delay(1000);
+              sim800a.print(mapLink); // Send the Google Maps link
+              delay(1000);
+              sim800a.write(26); // Send the CTRL+Z character to indicate the end of the message
+              delay(1000);
+
+              // Wait for the SIM800A module to send the message
+              delay(10000);
+
+              // Exit the loop after sending the SMS once
+              return;
+            }
+          }
+        }
+      }
+    }
+  }
+}
